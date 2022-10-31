@@ -1,4 +1,9 @@
-use crate::inputs::{key::Key, stateful_list::StatefulList};
+use std::sync::mpsc::Sender;
+
+use crate::{
+    inputs::{key::Key, stateful_list::StatefulList},
+    io::IoEvent,
+};
 
 macro_rules! key {
     (up) => {
@@ -41,6 +46,7 @@ impl Pane {
 
 pub struct App {
     pane: Pane,
+    io_tx: Sender<IoEvent>,
     pub active_rooms: StatefulList<String>,
     pub room_users: StatefulList<String>,
     pub all_rooms: StatefulList<String>,
@@ -48,8 +54,9 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(io_tx: Sender<IoEvent>) -> Self {
         Self {
+            io_tx,
             pane: Pane::Rooms,
             active_rooms: StatefulList::with_items(Vec::new()),
             room_users: StatefulList::with_items(Vec::new()),
@@ -62,6 +69,16 @@ impl App {
         self.pane
     }
 
+    pub fn dispatch(&mut self, event: IoEvent) {
+        if let Err(e) = self.io_tx.send(event) {
+            panic!("Error dispatching {e}")
+        }
+    }
+
+    pub fn update_on_tick(&mut self) -> AppReturn {
+        AppReturn::Continue
+    }
+
     pub fn do_action(&mut self, key: Key) -> AppReturn {
         if matches!(key, Key::Ctrl('c') | Key::Char('q')) {
             return AppReturn::Exit;
@@ -69,6 +86,11 @@ impl App {
 
         if key == Key::Esc {
             self.pane = Pane::Rooms;
+            return AppReturn::Continue;
+        }
+
+        if key == Key::Char('s') {
+            self.dispatch(IoEvent::Sleep);
             return AppReturn::Continue;
         }
 
@@ -126,7 +148,7 @@ impl App {
                 self.room_users.next();
                 AppReturn::Continue
             }
-            _ => AppReturn::Continue
+            _ => AppReturn::Continue,
         }
     }
 
@@ -140,7 +162,7 @@ impl App {
                 self.all_users.next();
                 AppReturn::Continue
             }
-            _ => AppReturn::Continue
+            _ => AppReturn::Continue,
         }
     }
 
@@ -154,11 +176,7 @@ impl App {
                 self.all_rooms.next();
                 AppReturn::Continue
             }
-            _ => AppReturn::Continue
+            _ => AppReturn::Continue,
         }
-    }
-
-    pub fn update_on_tick(&mut self) -> AppReturn {
-        AppReturn::Continue
     }
 }

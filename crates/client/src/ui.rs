@@ -2,8 +2,8 @@ use tui::{
     backend::Backend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    text::{Span, Spans},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph},
+    text::Span,
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem},
     Frame,
 };
 
