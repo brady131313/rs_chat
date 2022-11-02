@@ -3,7 +3,7 @@ use tui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 
@@ -11,11 +11,14 @@ use crate::app::{App, Pane};
 
 pub fn draw<B: Backend>(rect: &mut Frame<B>, app: &mut App, username: &str) {
     let size = rect.size();
+    if size.width < 87 || size.height < 16 {
+        panic!("Screen too small");
+    }
 
     let block = Block::default()
         .title(Spans::from(vec![
             Span::from("IRC as "),
-            Span::styled(username, Style::default().add_modifier(Modifier::ITALIC)),
+            current_user_span(username),
         ]))
         .title_alignment(Alignment::Center)
         .border_type(BorderType::Rounded);
@@ -48,8 +51,36 @@ pub fn draw<B: Backend>(rect: &mut Frame<B>, app: &mut App, username: &str) {
         .highlight_symbol("> ");
     rect.render_stateful_widget(active_rooms, chunks[0], &mut app.active_rooms.state);
 
+    // Messages
+    let message_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(85), Constraint::Percentage(15)])
+        .split(chunks[1]);
+
     let messages_block = panel(Pane::Messages, app.current_pane());
-    rect.render_widget(messages_block, chunks[1]);
+    let new_message_block = panel(Pane::NewMessage, app.current_pane());
+
+    if let Some(messages) = app.current_messages_mut() {
+        let message_items: Vec<_> = messages
+            .items
+            .iter()
+            .map(|m| message_list_item(m, username))
+            .collect();
+
+        let message_list = List::new(message_items)
+            .block(messages_block)
+            .highlight_symbol("> ");
+
+        rect.render_stateful_widget(message_list, message_chunks[0], &mut messages.state);
+
+        let message_input = Paragraph::new(app.new_message())
+            .block(new_message_block)
+            .wrap(Wrap { trim: false });
+        rect.render_widget(message_input, message_chunks[1]);
+    } else {
+        rect.render_widget(messages_block, message_chunks[0]);
+        rect.render_widget(new_message_block, message_chunks[1]);
+    }
 
     // Room Users
     let users = panel(Pane::Users, app.current_pane());
@@ -57,16 +88,7 @@ pub fn draw<B: Backend>(rect: &mut Frame<B>, app: &mut App, username: &str) {
         let list_items: Vec<_> = room_users
             .items
             .iter()
-            .map(|i| {
-                if i == username {
-                    ListItem::new(Span::styled(
-                        i,
-                        Style::default().add_modifier(Modifier::ITALIC),
-                    ))
-                } else {
-                    ListItem::new(Span::from(i.as_ref()))
-                }
-            })
+            .map(|i| user_list_item(i, username))
             .collect();
 
         let list = List::new(list_items)
@@ -82,8 +104,8 @@ pub fn draw<B: Backend>(rect: &mut Frame<B>, app: &mut App, username: &str) {
     match app.current_pane() {
         Pane::NewRoom => {
             let block = panel(Pane::NewRoom, app.current_pane());
-            let area = centered_rect(60, 5, size);
-            let input = Paragraph::new(app.new_room());
+            let area = centered_rect(60, 12, size);
+            let input = Paragraph::new(app.new_room()).block(block);
             rect.render_widget(Clear, area);
             rect.render_widget(input, area);
         }
@@ -95,16 +117,7 @@ pub fn draw<B: Backend>(rect: &mut Frame<B>, app: &mut App, username: &str) {
                 .all_users
                 .items
                 .iter()
-                .map(|i| {
-                    if i == username {
-                        ListItem::new(Span::styled(
-                            i,
-                            Style::default().add_modifier(Modifier::ITALIC),
-                        ))
-                    } else {
-                        ListItem::new(Span::from(i.as_ref()))
-                    }
-                })
+                .map(|i| user_list_item(i, username))
                 .collect();
 
             let all_users = List::new(all_users)
@@ -134,6 +147,31 @@ pub fn draw<B: Backend>(rect: &mut Frame<B>, app: &mut App, username: &str) {
         }
         _ => {}
     }
+}
+
+fn message_list_item<'a>(current: &'a (String, String), username: &'a str) -> ListItem<'a> {
+    let sender_span = if current.0 == username {
+        current_user_span(username)
+    } else {
+        Span::from(current.0.as_str())
+    };
+
+    ListItem::new(Spans::from(vec![
+        sender_span,
+        Span::from(format!(": {}", current.1)),
+    ]))
+}
+
+fn user_list_item<'a>(current: &'a str, username: &'a str) -> ListItem<'a> {
+    if current == username {
+        ListItem::new(current_user_span(username))
+    } else {
+        ListItem::new(Span::from(current))
+    }
+}
+
+fn current_user_span(username: &str) -> Span {
+    Span::styled(username, Style::default().add_modifier(Modifier::ITALIC))
 }
 
 fn panel(pane: Pane, active: Pane) -> Block<'static> {

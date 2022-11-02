@@ -26,11 +26,6 @@ pub enum Command {
         target: Target,
         message: String,
     },
-    Tell {
-        target: Target,
-        sender: String,
-        message: String,
-    },
 }
 
 impl From<Command> for String {
@@ -52,6 +47,11 @@ pub enum Response {
     ListMembers { room: String, users: Vec<String> },
     ListRooms { rooms: Vec<String> },
     ListUsers { users: Vec<String> },
+    TellRoom { 
+        room: String,
+        sender: String,
+        message: String
+    },
     Err(ResponseError),
 }
 

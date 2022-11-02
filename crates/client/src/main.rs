@@ -1,4 +1,10 @@
-use std::{error::Error, io::stdout, net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    error::Error,
+    io::{self, stdout},
+    net::SocketAddr,
+    sync::Arc,
+    time::Duration,
+};
 
 use clap::Parser;
 use client::{
@@ -8,6 +14,7 @@ use client::{
     ui,
 };
 use common::client::Client;
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedReceiver},
     Mutex,
@@ -35,8 +42,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app = App::new(io_tx);
     let app = Arc::new(Mutex::new(app));
 
+    set_panic();
     start_io(client, app.clone(), io_rx).await;
-    start_ui(app, &args.user).await
+    start_ui(app, args.user).await
 }
 
 async fn start_io(mut client: Client, app: Arc<Mutex<App>>, mut io_rx: UnboundedReceiver<IoEvent>) {
@@ -61,14 +69,14 @@ async fn start_io(mut client: Client, app: Arc<Mutex<App>>, mut io_rx: Unbounded
     });
 }
 
-async fn start_ui(app: Arc<Mutex<App>>, username: &str) -> Result<(), Box<dyn Error>> {
+async fn start_ui(app: Arc<Mutex<App>>, username: String) -> Result<(), Box<dyn Error>> {
+    let mut stdout = stdout();
+    crossterm::execute!(stdout, EnterAlternateScreen)?;
     crossterm::terminal::enable_raw_mode()?;
 
-    let stdout = stdout();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    terminal.clear()?;
     terminal.hide_cursor()?;
 
     let tick_rate = Duration::from_millis(200);
@@ -77,7 +85,7 @@ async fn start_ui(app: Arc<Mutex<App>>, username: &str) -> Result<(), Box<dyn Er
     loop {
         let mut app = app.lock().await;
 
-        terminal.draw(|rect| ui::draw(rect, &mut app, username))?;
+        terminal.draw(|rect| ui::draw(rect, &mut app, &username))?;
 
         let result = match events.next().await {
             InputEvent::Input(key) => app.do_action(key),
@@ -89,10 +97,22 @@ async fn start_ui(app: Arc<Mutex<App>>, username: &str) -> Result<(), Box<dyn Er
         }
     }
 
-    terminal.clear()?;
-    terminal.show_cursor()?;
+    reset_terminal()?;
+    Ok(())
+}
 
+fn set_panic() {
+    let original_hook = std::panic::take_hook();
+
+    std::panic::set_hook(Box::new(move |panic| {
+        reset_terminal().unwrap();
+        original_hook(panic)
+    }));
+}
+
+fn reset_terminal() -> Result<(), Box<dyn Error>> {
     crossterm::terminal::disable_raw_mode()?;
+    crossterm::execute!(io::stdout(), LeaveAlternateScreen)?;
 
     Ok(())
 }

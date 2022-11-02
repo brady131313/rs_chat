@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use common::commands::Command;
+use common::commands::{Command, Target};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -18,6 +18,8 @@ macro_rules! key {
     };
 }
 
+pub type Message = (String, String);
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum AppReturn {
     Exit,
@@ -28,6 +30,7 @@ pub enum AppReturn {
 pub enum Pane {
     Rooms,
     Messages,
+    NewMessage,
     Users,
     NewRoom,
     AllUsers,
@@ -39,6 +42,7 @@ impl Pane {
         match self {
             Pane::Rooms => "Active Rooms",
             Pane::Messages => "Messages",
+            Pane::NewMessage => "New Message",
             Pane::Users => "Room Users",
             Pane::NewRoom => "New Room",
             Pane::AllUsers => "All Users",
@@ -51,8 +55,10 @@ pub struct App {
     pane: Pane,
     io_tx: UnboundedSender<IoEvent>,
     new_room: String,
+    new_message: String,
     pub active_rooms: StatefulList<String>,
     room_users: HashMap<String, StatefulList<String>>,
+    messages: HashMap<String, StatefulList<Message>>,
     pub all_rooms: StatefulList<String>,
     pub all_users: StatefulList<String>,
 }
@@ -63,8 +69,10 @@ impl App {
             io_tx,
             pane: Pane::Rooms,
             new_room: String::from(""),
+            new_message: String::from(""),
             active_rooms: StatefulList::with_items(Vec::new()),
             room_users: HashMap::new(),
+            messages: HashMap::new(),
             all_rooms: StatefulList::with_items(Vec::new()),
             all_users: StatefulList::with_items(Vec::new()),
         }
@@ -78,6 +86,16 @@ impl App {
         &self.new_room
     }
 
+    pub fn new_message(&self) -> &str {
+        &self.new_message
+    }
+
+    pub fn maybe_focus_new_message(&mut self) {
+        if self.active_rooms.selected_item().is_some() {
+            self.pane = Pane::NewMessage
+        }
+    }
+
     pub fn leave_room(&mut self) {
         if let Some(room_idx) = self.active_rooms.selected() {
             let room = self.active_rooms.items[room_idx].to_owned();
@@ -85,6 +103,7 @@ impl App {
             self.active_rooms.previous();
             self.active_rooms.items.remove(room_idx);
             self.room_users.remove(&room);
+            self.messages.remove(&room);
 
             self.dispatch(IoEvent::Command(Command::Leave { room }))
         }
@@ -99,16 +118,26 @@ impl App {
         self.room_users.get_mut(selected)
     }
 
-    pub fn current_room_users(&self) -> Option<&Vec<String>> {
+    pub fn messages_mut(&mut self, room: &str) -> Option<&mut StatefulList<Message>> {
+        self.messages.get_mut(room)
+    }
+
+    pub fn current_messages_mut(&mut self) -> Option<&mut StatefulList<Message>> {
         let selected = self.active_rooms.selected_item()?;
-        self.room_users.get(selected).map(|l| &l.items)
+        self.messages.get_mut(selected)
     }
 
     pub fn add_active_room(&mut self, room: String) {
         if !self.active_rooms.items.contains(&room) {
+            // Push new room and select it
             self.active_rooms.items.push(room.clone());
+            self.active_rooms
+                .state
+                .select(Some(self.active_rooms.items.len() - 1));
+
             self.room_users
-                .insert(room, StatefulList::with_items(vec![]));
+                .insert(room.clone(), StatefulList::with_items(vec![]));
+            self.messages.insert(room, StatefulList::with_items(vec![]));
         }
     }
 
@@ -129,6 +158,12 @@ impl App {
 
         if key == Key::Esc {
             self.pane = Pane::Rooms;
+            self.current_room_users_mut()
+                .map(|room| room.unselect())
+                .unwrap_or_default();
+            self.current_messages_mut()
+                .map(|msg| msg.unselect())
+                .unwrap_or_default();
             return AppReturn::Continue;
         }
 
@@ -139,7 +174,8 @@ impl App {
 
         match self.pane {
             Pane::Rooms => self.room_action(key),
-            Pane::Messages => todo!(),
+            Pane::Messages => self.message_action(key),
+            Pane::NewMessage => self.new_message_action(key),
             Pane::Users => self.users_action(key),
             Pane::NewRoom => self.new_room_action(key),
             Pane::AllUsers => self.all_users_action(key),
@@ -161,8 +197,12 @@ impl App {
                 self.pane = Pane::Users;
                 AppReturn::Continue
             }
-            Key::Char('i') => {
+            Key::Char('m') | Key::Enter => {
                 self.pane = Pane::Messages;
+                AppReturn::Continue
+            }
+            Key::Char('M') => {
+                self.maybe_focus_new_message();
                 AppReturn::Continue
             }
             Key::Char('U') => {
@@ -181,6 +221,52 @@ impl App {
             }
             key!(down) => {
                 self.active_rooms.next();
+                AppReturn::Continue
+            }
+            _ => AppReturn::Continue,
+        }
+    }
+
+    fn message_action(&mut self, key: Key) -> AppReturn {
+        match key {
+            key!(up) => {
+                self.current_messages_mut()
+                    .map(|msg| msg.previous())
+                    .unwrap_or_default();
+                AppReturn::Continue
+            }
+            key!(down) => {
+                self.current_messages_mut()
+                    .map(|msg| msg.next())
+                    .unwrap_or_default();
+                AppReturn::Continue
+            }
+            Key::Char('m') | Key::Enter => {
+                self.maybe_focus_new_message();
+                AppReturn::Continue
+            }
+            _ => AppReturn::Continue,
+        }
+    }
+
+    fn new_message_action(&mut self, key: Key) -> AppReturn {
+        match key {
+            Key::Enter => {
+                let room = self.active_rooms.selected_item().unwrap();
+                self.dispatch(IoEvent::Command(Command::Send {
+                    target: Target::Room(room.clone()),
+                    message: self.new_message.clone(),
+                }));
+
+                self.new_message.clear();
+                AppReturn::Continue
+            }
+            Key::Backspace => {
+                self.new_message.pop();
+                AppReturn::Continue
+            }
+            Key::Char(c) => {
+                self.new_message.push(c);
                 AppReturn::Continue
             }
             _ => AppReturn::Continue,

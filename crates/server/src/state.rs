@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use common::commands::{Command, Response, ResponseError};
+use common::commands::{Command, Response, ResponseError, Target};
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Default)]
@@ -93,6 +93,22 @@ impl State {
         ResponseType::Sender(Response::ListUsers { users })
     }
 
+    fn send(&mut self, target: Target, message: String, user: SocketAddr) -> ResponseType {
+        let user = self.user(user).to_owned();
+
+        match target {
+            Target::Room(room) => {
+                let response = Response::TellRoom {
+                    room: room.clone(),
+                    sender: user,
+                    message,
+                };
+                ResponseType::BroadcastRoom(room, response)
+            }
+            Target::Username(..) => todo!(),
+        }
+    }
+
     fn user(&self, addr: SocketAddr) -> &str {
         self.addr_to_user.get(&addr).unwrap()
     }
@@ -108,12 +124,7 @@ impl ServerState {
             Command::KeepAlive => todo!(),
             Command::ListRooms => state.list_rooms(),
             Command::ListUsers => state.list_users(),
-            Command::Send { target, message } => todo!(),
-            Command::Tell {
-                target,
-                sender,
-                message,
-            } => todo!(),
+            Command::Send { target, message } => state.send(target, message, peer.addr),
         }
     }
 

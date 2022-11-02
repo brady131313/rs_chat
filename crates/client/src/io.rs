@@ -43,6 +43,17 @@ impl IoHandler {
                 let mut app = self.app.lock().await;
                 app.all_rooms.items = rooms;
             }
+            Response::TellRoom {
+                room,
+                sender,
+                message,
+            } => {
+                let mut app = self.app.lock().await;
+                app.messages_mut(&room)
+                    .unwrap()
+                    .items
+                    .push((sender, message));
+            }
             Response::Err(_) => todo!(),
         }
     }
