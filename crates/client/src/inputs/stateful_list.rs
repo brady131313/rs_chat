@@ -13,6 +13,15 @@ impl<T> StatefulList<T> {
         }
     }
 
+    pub fn selected_item(&self) -> Option<&T> {
+        let idx = self.state.selected()?;
+        self.items.get(idx)
+    }
+
+    pub fn selected(&self) -> Option<usize> {
+        self.state.selected()
+    }
+
     pub fn next(&mut self) {
         if self.items.is_empty() {
             return;

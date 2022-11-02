@@ -1,4 +1,7 @@
-use std::sync::mpsc::Sender;
+use std::collections::HashMap;
+
+use common::commands::Command;
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     inputs::{key::Key, stateful_list::StatefulList},
@@ -46,20 +49,22 @@ impl Pane {
 
 pub struct App {
     pane: Pane,
-    io_tx: Sender<IoEvent>,
+    io_tx: UnboundedSender<IoEvent>,
+    new_room: String,
     pub active_rooms: StatefulList<String>,
-    pub room_users: StatefulList<String>,
+    room_users: HashMap<String, StatefulList<String>>,
     pub all_rooms: StatefulList<String>,
     pub all_users: StatefulList<String>,
 }
 
 impl App {
-    pub fn new(io_tx: Sender<IoEvent>) -> Self {
+    pub fn new(io_tx: UnboundedSender<IoEvent>) -> Self {
         Self {
             io_tx,
             pane: Pane::Rooms,
+            new_room: String::from(""),
             active_rooms: StatefulList::with_items(Vec::new()),
-            room_users: StatefulList::with_items(Vec::new()),
+            room_users: HashMap::new(),
             all_rooms: StatefulList::with_items(Vec::new()),
             all_users: StatefulList::with_items(Vec::new()),
         }
@@ -67,6 +72,44 @@ impl App {
 
     pub fn current_pane(&self) -> Pane {
         self.pane
+    }
+
+    pub fn new_room(&self) -> &str {
+        &self.new_room
+    }
+
+    pub fn leave_room(&mut self) {
+        if let Some(room_idx) = self.active_rooms.selected() {
+            let room = self.active_rooms.items[room_idx].to_owned();
+
+            self.active_rooms.previous();
+            self.active_rooms.items.remove(room_idx);
+            self.room_users.remove(&room);
+
+            self.dispatch(IoEvent::Command(Command::Leave { room }))
+        }
+    }
+
+    pub fn room_users_mut(&mut self, room: &str) -> Option<&mut StatefulList<String>> {
+        self.room_users.get_mut(room)
+    }
+
+    pub fn current_room_users_mut(&mut self) -> Option<&mut StatefulList<String>> {
+        let selected = self.active_rooms.selected_item()?;
+        self.room_users.get_mut(selected)
+    }
+
+    pub fn current_room_users(&self) -> Option<&Vec<String>> {
+        let selected = self.active_rooms.selected_item()?;
+        self.room_users.get(selected).map(|l| &l.items)
+    }
+
+    pub fn add_active_room(&mut self, room: String) {
+        if !self.active_rooms.items.contains(&room) {
+            self.active_rooms.items.push(room.clone());
+            self.room_users
+                .insert(room, StatefulList::with_items(vec![]));
+        }
     }
 
     pub fn dispatch(&mut self, event: IoEvent) {
@@ -89,7 +132,7 @@ impl App {
             return AppReturn::Continue;
         }
 
-        if key == Key::Char('s') {
+        if key == Key::Ctrl('s') {
             self.dispatch(IoEvent::Sleep);
             return AppReturn::Continue;
         }
@@ -98,7 +141,7 @@ impl App {
             Pane::Rooms => self.room_action(key),
             Pane::Messages => todo!(),
             Pane::Users => self.users_action(key),
-            Pane::NewRoom => todo!(),
+            Pane::NewRoom => self.new_room_action(key),
             Pane::AllUsers => self.all_users_action(key),
             Pane::AllRooms => self.all_rooms_action(key),
         }
@@ -110,6 +153,10 @@ impl App {
                 self.pane = Pane::NewRoom;
                 AppReturn::Continue
             }
+            Key::Char('l') => {
+                self.leave_room();
+                AppReturn::Continue
+            }
             Key::Char('u') => {
                 self.pane = Pane::Users;
                 AppReturn::Continue
@@ -119,10 +166,12 @@ impl App {
                 AppReturn::Continue
             }
             Key::Char('U') => {
+                self.dispatch(IoEvent::Command(Command::ListUsers));
                 self.pane = Pane::AllUsers;
                 AppReturn::Continue
             }
             Key::Char('R') => {
+                self.dispatch(IoEvent::Command(Command::ListRooms));
                 self.pane = Pane::AllRooms;
                 AppReturn::Continue
             }
@@ -141,11 +190,15 @@ impl App {
     fn users_action(&mut self, key: Key) -> AppReturn {
         match key {
             key!(up) => {
-                self.room_users.previous();
+                self.current_room_users_mut()
+                    .map(|room| room.previous())
+                    .unwrap_or_default();
                 AppReturn::Continue
             }
             key!(down) => {
-                self.room_users.next();
+                self.current_room_users_mut()
+                    .map(|room| room.next())
+                    .unwrap_or_default();
                 AppReturn::Continue
             }
             _ => AppReturn::Continue,
@@ -174,6 +227,37 @@ impl App {
             }
             key!(down) => {
                 self.all_rooms.next();
+                AppReturn::Continue
+            }
+            Key::Enter => {
+                if let Some(room) = self.all_rooms.selected_item() {
+                    self.dispatch(IoEvent::Command(Command::JoinOrCreate {
+                        room: room.clone(),
+                    }));
+                    self.pane = Pane::Rooms;
+                }
+                AppReturn::Continue
+            }
+            _ => AppReturn::Continue,
+        }
+    }
+
+    fn new_room_action(&mut self, key: Key) -> AppReturn {
+        match key {
+            Key::Enter => {
+                self.dispatch(IoEvent::Command(Command::JoinOrCreate {
+                    room: self.new_room.clone(),
+                }));
+                self.new_room.clear();
+                self.pane = Pane::Rooms;
+                AppReturn::Continue
+            }
+            Key::Backspace => {
+                self.new_room.pop();
+                AppReturn::Continue
+            }
+            Key::Char(c) => {
+                self.new_room.push(c);
                 AppReturn::Continue
             }
             _ => AppReturn::Continue,

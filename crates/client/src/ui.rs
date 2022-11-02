@@ -1,19 +1,22 @@
 use tui::{
     backend::Backend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
-    text::Span,
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem},
+    style::{Color, Modifier, Style},
+    text::{Span, Spans},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
 
 use crate::app::{App, Pane};
 
-pub fn draw<B: Backend>(rect: &mut Frame<B>, app: &mut App) {
+pub fn draw<B: Backend>(rect: &mut Frame<B>, app: &mut App, username: &str) {
     let size = rect.size();
 
     let block = Block::default()
-        .title("IRC")
+        .title(Spans::from(vec![
+            Span::from("IRC as "),
+            Span::styled(username, Style::default().add_modifier(Modifier::ITALIC)),
+        ]))
         .title_alignment(Alignment::Center)
         .border_type(BorderType::Rounded);
     rect.render_widget(block, size);
@@ -49,25 +52,40 @@ pub fn draw<B: Backend>(rect: &mut Frame<B>, app: &mut App) {
     rect.render_widget(messages_block, chunks[1]);
 
     // Room Users
-    let room_users: Vec<ListItem> = app
-        .room_users
-        .items
-        .iter()
-        .map(|i| ListItem::new(Span::from(i.as_ref())))
-        .collect();
+    let users = panel(Pane::Users, app.current_pane());
+    if let Some(room_users) = app.current_room_users_mut() {
+        let list_items: Vec<_> = room_users
+            .items
+            .iter()
+            .map(|i| {
+                if i == username {
+                    ListItem::new(Span::styled(
+                        i,
+                        Style::default().add_modifier(Modifier::ITALIC),
+                    ))
+                } else {
+                    ListItem::new(Span::from(i.as_ref()))
+                }
+            })
+            .collect();
 
-    let room_users = List::new(room_users)
-        .block(panel(Pane::Users, app.current_pane()))
-        .highlight_style(Style::default().fg(Color::LightBlue))
-        .highlight_symbol("> ");
-    rect.render_stateful_widget(room_users, chunks[2], &mut app.room_users.state);
+        let list = List::new(list_items)
+            .block(users)
+            .highlight_style(Style::default().fg(Color::LightBlue))
+            .highlight_symbol("> ");
+
+        rect.render_stateful_widget(list, chunks[2], &mut room_users.state);
+    } else {
+        rect.render_widget(users, chunks[2]);
+    }
 
     match app.current_pane() {
         Pane::NewRoom => {
             let block = panel(Pane::NewRoom, app.current_pane());
             let area = centered_rect(60, 5, size);
+            let input = Paragraph::new(app.new_room());
             rect.render_widget(Clear, area);
-            rect.render_widget(block, area);
+            rect.render_widget(input, area);
         }
         Pane::AllUsers => {
             let area = centered_rect(60, 30, size);
@@ -77,7 +95,16 @@ pub fn draw<B: Backend>(rect: &mut Frame<B>, app: &mut App) {
                 .all_users
                 .items
                 .iter()
-                .map(|i| ListItem::new(Span::from(i.as_ref())))
+                .map(|i| {
+                    if i == username {
+                        ListItem::new(Span::styled(
+                            i,
+                            Style::default().add_modifier(Modifier::ITALIC),
+                        ))
+                    } else {
+                        ListItem::new(Span::from(i.as_ref()))
+                    }
+                })
                 .collect();
 
             let all_users = List::new(all_users)
