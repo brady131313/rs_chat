@@ -37,6 +37,11 @@ pub fn draw<B: Backend>(rect: &mut Frame<B>, app: &mut App, username: &str) {
         )
         .split(size);
 
+    let active_chunk = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .split(chunks[0]);
+
     // Active Rooms
     let active_rooms: Vec<ListItem> = app
         .active_rooms
@@ -49,7 +54,21 @@ pub fn draw<B: Backend>(rect: &mut Frame<B>, app: &mut App, username: &str) {
         .block(panel(Pane::Rooms, app.current_pane()))
         .highlight_style(Style::default().fg(Color::LightBlue))
         .highlight_symbol("> ");
-    rect.render_stateful_widget(active_rooms, chunks[0], &mut app.active_rooms.state);
+    rect.render_stateful_widget(active_rooms, active_chunk[0], &mut app.active_rooms.state);
+
+    // Active Chats
+    let active_chats: Vec<ListItem> = app
+        .active_chats
+        .items
+        .iter()
+        .map(|i| ListItem::new(Span::from(i.as_ref())))
+        .collect();
+
+    let active_chats = List::new(active_chats)
+        .block(panel(Pane::Chats, app.current_pane()))
+        .highlight_style(Style::default().fg(Color::LightBlue))
+        .highlight_symbol("> ");
+    rect.render_stateful_widget(active_chats, active_chunk[1], &mut app.active_chats.state);
 
     // Messages
     let message_chunks = Layout::default()

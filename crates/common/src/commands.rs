@@ -8,6 +8,15 @@ pub enum Target {
     Room(String),
 }
 
+pub const KEEP_ALIVE_INTERVAL: u64 = 5;
+pub const KEEP_ALIVE_CHECK: u64 = 10;
+
+#[derive(Debug)]
+pub struct KeepAlive;
+
+#[derive(Debug)]
+pub struct Kill;
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Command {
     Hello {
@@ -52,6 +61,12 @@ pub enum Response {
         sender: String,
         message: String
     },
+    TellUser {
+        username: String,
+        sender: String,
+        message: String
+    },
+    KeepAlive,
     Err(ResponseError),
 }
 

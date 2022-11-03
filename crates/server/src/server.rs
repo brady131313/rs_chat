@@ -1,14 +1,14 @@
-use std::io;
+use std::{io, time::Duration};
 
 use common::{
-    commands::{Command, Response},
+    commands::{Command, KeepAlive, Kill, Response, KEEP_ALIVE_CHECK, KEEP_ALIVE_INTERVAL},
     connection::Connection,
     frame::Frame,
     Result,
 };
 use tokio::{
     net::{TcpListener, ToSocketAddrs},
-    sync::mpsc,
+    sync::{mpsc, watch},
 };
 use tracing::instrument;
 
@@ -22,6 +22,8 @@ pub struct Handler {
     connection: Connection,
     state: ServerState,
     rx: mpsc::UnboundedReceiver<Response>,
+    keep_alive_rx: watch::Receiver<KeepAlive>,
+    keep_alive_kill_rx: mpsc::UnboundedReceiver<Kill>,
 }
 
 impl Server {
@@ -35,17 +37,40 @@ impl Server {
         tracing::info!("accepting connections at {}", self.listener.local_addr()?);
 
         let state = ServerState::default();
+
+        // Broadcast keep alive
+        let (keep_alive_tx, keep_alive_rx) = watch::channel(KeepAlive);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(KEEP_ALIVE_INTERVAL)).await;
+                keep_alive_tx.send(KeepAlive).unwrap();
+            }
+        });
+
+        // Kick clients that haven't kept alive
+        let keep_alive_state = state.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(KEEP_ALIVE_CHECK)).await;
+                keep_alive_state.kick_keep_alive();
+            }
+        });
+
+        // handle incoming connections
         loop {
             let (socket, addr) = self.listener.accept().await?;
             tracing::info!("received connection from {addr}");
 
             let (tx, rx) = mpsc::unbounded_channel();
-            let peer = Peer { addr, tx };
+            let (keep_alive_kill_tx, keep_alive_kill_rx) = mpsc::unbounded_channel();
+            let peer = Peer::new(addr, tx, keep_alive_kill_tx);
 
             let mut handler = Handler {
                 connection: Connection::new(socket),
                 state: state.clone(),
                 rx,
+                keep_alive_rx: keep_alive_rx.clone(),
+                keep_alive_kill_rx,
             };
 
             tokio::spawn(async move {
@@ -58,10 +83,18 @@ impl Server {
 }
 
 impl Handler {
-    #[instrument(level = "info", name = "Handler::run", skip(self, peer), fields(peer_addr = %peer.addr))]
+    #[instrument(level = "info", name = "Handler::run", skip(self, peer), fields(peer_addr = %peer.addr()))]
     async fn run(&mut self, peer: Peer) -> Result<()> {
         loop {
             tokio::select! {
+                _ = self.keep_alive_kill_rx.recv() => {
+                    tracing::info!("killing");
+                    self.state.remove_peer(&peer);
+                    break;
+                }
+                _ = self.keep_alive_rx.changed() => {
+                    self.state.broadcast(Response::KeepAlive)
+                }
                 Some(res) = self.rx.recv() => {
                     tracing::trace!("broadcast {res:?}");
                     let frame = Frame::from(String::from(res));
@@ -83,6 +116,11 @@ impl Handler {
                             let frame = Frame::from(String::from(cmd));
                             self.connection.write_frame(&frame).await?;
                         },
+                        ResponseType::SenderAndUser(user, cmd) => {
+                            self.state.send(&user, cmd.clone());
+                            let frame = Frame::from(String::from(cmd));
+                            self.connection.write_frame(&frame).await?;
+                        }
                         ResponseType::Broadcast(res) => self.state.broadcast(res),
                         ResponseType::BroadcastRoom(room, res) => self.state.broadcast_room(&room, res)
                     }

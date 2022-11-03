@@ -49,10 +49,25 @@ impl IoHandler {
                 message,
             } => {
                 let mut app = self.app.lock().await;
-                app.messages_mut(&room)
+                app.room_messages_mut(&room)
                     .unwrap()
                     .items
                     .push((sender, message));
+            }
+            Response::TellUser {
+                username,
+                sender,
+                message,
+            } => {
+                let mut app = self.app.lock().await;
+                if app.chat_messages_mut(&sender).is_none() {
+                    app.add_chat(sender.clone());
+                }
+                app.chat_messages_mut(&sender).unwrap().items.push((sender, message));
+            }
+            Response::KeepAlive => {
+                let mut app = self.app.lock().await;
+                app.set_keep_alive(true);
             }
             Response::Err(_) => todo!(),
         }

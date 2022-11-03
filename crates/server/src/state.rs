@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use common::commands::{Command, Response, ResponseError, Target};
+use common::commands::{Command, Kill, Response, ResponseError, Target};
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Default)]
@@ -19,8 +19,29 @@ struct Shared {
 
 #[derive(Debug, Clone)]
 pub struct Peer {
-    pub addr: SocketAddr,
-    pub tx: mpsc::UnboundedSender<Response>,
+    addr: SocketAddr,
+    tx: mpsc::UnboundedSender<Response>,
+    keep_alive: bool,
+    kill_tx: mpsc::UnboundedSender<Kill>,
+}
+
+impl Peer {
+    pub fn new(
+        addr: SocketAddr,
+        tx: mpsc::UnboundedSender<Response>,
+        kill_tx: mpsc::UnboundedSender<Kill>,
+    ) -> Self {
+        Self {
+            addr,
+            tx,
+            keep_alive: true,
+            kill_tx,
+        }
+    }
+
+    pub fn addr(&self) -> SocketAddr {
+        self.addr
+    }
 }
 
 #[derive(Debug, Default)]
@@ -33,6 +54,7 @@ struct State {
 pub enum ResponseType {
     None,
     Sender(Response),
+    SenderAndUser(String, Response),
     Broadcast(Response),
     BroadcastRoom(String, Response),
 }
@@ -105,12 +127,38 @@ impl State {
                 };
                 ResponseType::BroadcastRoom(room, response)
             }
-            Target::Username(..) => todo!(),
+            Target::Username(username) => {
+                let response = Response::TellUser { username: username.clone(), sender: user, message };
+                ResponseType::SenderAndUser(username, response)
+            },
         }
+    }
+
+    fn keep_alive(&mut self, user: SocketAddr) -> ResponseType {
+        let user = self.user(user).to_owned();
+        let user = self.users.get_mut(&user).unwrap();
+        user.keep_alive = true;
+        ResponseType::None
     }
 
     fn user(&self, addr: SocketAddr) -> &str {
         self.addr_to_user.get(&addr).unwrap()
+    }
+
+    fn kick_keep_alive(&mut self) {
+        for peer in self.users.values_mut() {
+            if !peer.keep_alive {
+                peer.kill_tx.send(Kill).unwrap_or_default();
+            } else {
+                peer.keep_alive = false;
+            }
+        }
+    }
+
+    fn remove_peer(&mut self, peer: &Peer) {
+        let user = self.user(peer.addr).to_owned();
+        self.addr_to_user.remove(&peer.addr);
+        self.users.remove(&user);
     }
 }
 
@@ -121,16 +169,23 @@ impl ServerState {
             Command::Hello { username } => state.hello(username, peer),
             Command::JoinOrCreate { room } => state.join_or_create(room, peer.addr),
             Command::Leave { room } => state.leave_room(room, peer.addr),
-            Command::KeepAlive => todo!(),
+            Command::KeepAlive => state.keep_alive(peer.addr),
             Command::ListRooms => state.list_rooms(),
             Command::ListUsers => state.list_users(),
             Command::Send { target, message } => state.send(target, message, peer.addr),
         }
     }
 
+    pub fn send(&self, user: &str, response: Response) {
+        let state = self.shared.state.lock().unwrap();
+        if let Some(peer) = state.users.get(user) {
+            peer.tx.send(response).unwrap();
+        }
+    }
+
     pub fn broadcast(&self, response: Response) {
         for user in self.shared.state.lock().unwrap().users.values() {
-            user.tx.send(response.clone()).unwrap();
+            user.tx.send(response.clone()).unwrap_or_default();
         }
     }
 
@@ -140,5 +195,15 @@ impl ServerState {
             let user = &state.users[user];
             user.tx.send(response.clone()).unwrap()
         }
+    }
+
+    pub fn kick_keep_alive(&self) {
+        let mut state = self.shared.state.lock().unwrap();
+        state.kick_keep_alive();
+    }
+
+    pub fn remove_peer(&self, peer: &Peer) {
+        let mut state = self.shared.state.lock().unwrap();
+        state.remove_peer(peer)
     }
 }

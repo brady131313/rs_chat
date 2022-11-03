@@ -1,7 +1,7 @@
 use std::{
     error::Error,
     io::{self, stdout},
-    net::SocketAddr,
+    net::ToSocketAddrs,
     sync::Arc,
     time::Duration,
 };
@@ -13,7 +13,10 @@ use client::{
     io::{IoEvent, IoHandler},
     ui,
 };
-use common::client::Client;
+use common::{
+    client::Client,
+    commands::{Command, KEEP_ALIVE_CHECK, KEEP_ALIVE_INTERVAL},
+};
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedReceiver},
@@ -25,18 +28,26 @@ use tui::{backend::CrosstermBackend, Terminal};
 #[command(author, version, long_about = None)]
 /// Run an irc client
 struct Args {
-    #[arg(short, default_value = "127.0.0.1:4000")]
-    /// address of server
-    address: SocketAddr,
+    /// username to connect to server with
     #[arg(short, default_value = "guest")]
     user: String,
+    /// host
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
+    /// port
+    #[arg(short, default_value = "4000")]
+    port: u16,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
+    let addr = (args.host, args.port)
+        .to_socket_addrs()?
+        .next()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
 
-    let client = Client::connect(args.address, args.user.clone()).await?;
+    let client = Client::connect(addr, args.user.clone()).await?;
     let (io_tx, io_rx) = unbounded_channel();
 
     let app = App::new(io_tx);
@@ -49,7 +60,32 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 async fn start_io(mut client: Client, app: Arc<Mutex<App>>, mut io_rx: UnboundedReceiver<IoEvent>) {
     client.hello().await.unwrap();
-    let mut io_handler = IoHandler::new(client, app);
+    let mut io_handler = IoHandler::new(client, app.clone());
+
+    // Send keep alive
+    let keep_alive_app = app.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(KEEP_ALIVE_INTERVAL)).await;
+
+            let mut app = keep_alive_app.lock().await;
+            app.dispatch(IoEvent::Command(Command::KeepAlive));
+        }
+    });
+
+    // Check keep alive
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(KEEP_ALIVE_CHECK)).await;
+
+            let mut app = app.lock().await;
+            if !app.keep_alive() {
+                panic!("Server shutdown")
+            } else {
+                app.set_keep_alive(false);
+            }
+        }
+    });
 
     tokio::spawn(async move {
         loop {
