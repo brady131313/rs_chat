@@ -148,7 +148,7 @@ impl State {
     fn kick_keep_alive(&mut self) {
         for peer in self.users.values_mut() {
             if !peer.keep_alive {
-                peer.kill_tx.send(Kill).unwrap_or_default();
+                peer.kill_tx.send(Kill).unwrap();
             } else {
                 peer.keep_alive = false;
             }
@@ -185,7 +185,7 @@ impl ServerState {
 
     pub fn broadcast(&self, response: Response) {
         for user in self.shared.state.lock().unwrap().users.values() {
-            user.tx.send(response.clone()).unwrap_or_default();
+            user.tx.send(response.clone()).unwrap();
         }
     }
 

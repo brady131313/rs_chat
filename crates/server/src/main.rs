@@ -24,7 +24,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::subscriber::set_global_default(subscriber)?;
 
     let server = Server::bind(args.address).await?;
-    server.listen().await?;
+
+    tokio::select! {
+        _ = server.listen() => {},
+        _ = tokio::signal::ctrl_c() => {
+            println!("Shutting down");
+        }
+    }
 
     Ok(())
 }

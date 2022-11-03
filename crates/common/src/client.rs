@@ -32,7 +32,7 @@ impl Client {
     }
 
     pub async fn write_command(&mut self, command: Command) -> Result<()> {
-        let frame = Frame::from(String::from(command));
+        let frame = Frame::from(command);
         self.connection.write_frame(&frame).await?;
         Ok(())
     }
@@ -47,5 +47,9 @@ impl Client {
             }
             None => Err(Error::ConnectionResetByPeer),
         }
+    }
+
+    pub fn username(&self) -> &str {
+        &self.username
     }
 }

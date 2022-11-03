@@ -43,6 +43,7 @@ impl Server {
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(KEEP_ALIVE_INTERVAL)).await;
+                // Comment out to see client exit if it doesn't get keep alive
                 keep_alive_tx.send(KeepAlive).unwrap();
             }
         });
@@ -93,17 +94,22 @@ impl Handler {
                     break;
                 }
                 _ = self.keep_alive_rx.changed() => {
-                    self.state.broadcast(Response::KeepAlive)
+                    let frame = Frame::from(Response::KeepAlive);
+                    self.connection.write_frame(&frame).await?;
                 }
                 Some(res) = self.rx.recv() => {
                     tracing::trace!("broadcast {res:?}");
-                    let frame = Frame::from(String::from(res));
+                    let frame = Frame::from(res);
                     self.connection.write_frame(&frame).await?;
                 }
                 frame = self.connection.read_frame() => {
                     let frame = match frame? {
                         Some(frame) => frame,
-                        None => break
+                        None => {
+                            tracing::info!("connection closed");
+                            self.state.remove_peer(&peer);
+                            break
+                        }
                     };
 
                     let command: Command = frame.raw().try_into()?;
@@ -112,13 +118,13 @@ impl Handler {
 
                     match response {
                         ResponseType::None => {},
-                        ResponseType::Sender(cmd) => {
-                            let frame = Frame::from(String::from(cmd));
+                        ResponseType::Sender(res) => {
+                            let frame = Frame::from(res);
                             self.connection.write_frame(&frame).await?;
                         },
-                        ResponseType::SenderAndUser(user, cmd) => {
-                            self.state.send(&user, cmd.clone());
-                            let frame = Frame::from(String::from(cmd));
+                        ResponseType::SenderAndUser(user, res) => {
+                            self.state.send(&user, res.clone());
+                            let frame = Frame::from(res);
                             self.connection.write_frame(&frame).await?;
                         }
                         ResponseType::Broadcast(res) => self.state.broadcast(res),

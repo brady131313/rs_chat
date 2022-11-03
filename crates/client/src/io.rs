@@ -60,10 +60,25 @@ impl IoHandler {
                 message,
             } => {
                 let mut app = self.app.lock().await;
-                if app.chat_messages_mut(&sender).is_none() {
-                    app.add_chat(sender.clone());
+                if self.client.username() == sender {
+                    if app.chat_messages_mut(&username).is_none() {
+                        app.add_chat(username.clone());
+                    }
+
+                    app.chat_messages_mut(&username)
+                        .unwrap()
+                        .items
+                        .push((sender, message));
+                } else {
+                    if app.chat_messages_mut(&sender).is_none() {
+                        app.add_chat(sender.clone());
+                    }
+
+                    app.chat_messages_mut(&sender)
+                        .unwrap()
+                        .items
+                        .push((sender, message));
                 }
-                app.chat_messages_mut(&sender).unwrap().items.push((sender, message));
             }
             Response::KeepAlive => {
                 let mut app = self.app.lock().await;

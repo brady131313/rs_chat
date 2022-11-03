@@ -69,6 +69,7 @@ async fn start_io(mut client: Client, app: Arc<Mutex<App>>, mut io_rx: Unbounded
             tokio::time::sleep(Duration::from_secs(KEEP_ALIVE_INTERVAL)).await;
 
             let mut app = keep_alive_app.lock().await;
+            // Comment out to see server kill connection if it doesn't get keep alive
             app.dispatch(IoEvent::Command(Command::KeepAlive));
         }
     });

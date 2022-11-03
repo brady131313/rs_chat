@@ -49,15 +49,9 @@ fn read_u32(src: &mut Cursor<&[u8]>) -> Result<u32, FrameError> {
     Ok(n)
 }
 
-impl From<String> for Frame {
-    fn from(s: String) -> Self {
-        Self { raw: s }
-    }
-}
-
-impl<'a> From<&'a str> for Frame {
-    fn from(s: &'a str) -> Self {
-        Self { raw: s.into() }
+impl<T: Into<String>> From<T> for Frame {
+    fn from(t: T) -> Self {
+        Self { raw: t.into() }
     }
 }
 
