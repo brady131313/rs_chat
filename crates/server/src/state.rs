@@ -128,9 +128,13 @@ impl State {
                 ResponseType::BroadcastRoom(room, response)
             }
             Target::Username(username) => {
-                let response = Response::TellUser { username: username.clone(), sender: user, message };
+                let response = Response::TellUser {
+                    username: username.clone(),
+                    sender: user,
+                    message,
+                };
                 ResponseType::SenderAndUser(username, response)
-            },
+            }
         }
     }
 
@@ -155,10 +159,44 @@ impl State {
         }
     }
 
+    fn users_rooms_mut<'a>(
+        &'a mut self,
+        user: &'a str,
+    ) -> impl Iterator<Item = (&String, &mut HashSet<String>)> {
+        self.rooms
+            .iter_mut()
+            .filter(|(_, users)| users.contains(user))
+    }
+
     fn remove_peer(&mut self, peer: &Peer) {
         let user = self.user(peer.addr).to_owned();
         self.addr_to_user.remove(&peer.addr);
         self.users.remove(&user);
+
+        // Remove user from each room they're in and get a list of updated users
+        // to send to all users in the room
+        let mut rooms_to_notify = Vec::new();
+        for (room, users) in self.users_rooms_mut(&user) {
+            users.remove(&user);
+            rooms_to_notify.push((
+                room.clone(),
+                Response::ListMembers {
+                    room: room.clone(),
+                    users: users.iter().cloned().collect(),
+                },
+            ));
+        }
+
+        for (room, response) in rooms_to_notify {
+            self.broadcast_room(&room, response)
+        }
+    }
+
+    fn broadcast_room(&self, room: &str, response: Response) {
+        for user in &self.rooms[room] {
+            let user = &self.users[user];
+            user.tx.send(response.clone()).unwrap()
+        }
     }
 }
 
@@ -191,10 +229,7 @@ impl ServerState {
 
     pub fn broadcast_room(&self, room: &str, response: Response) {
         let state = self.shared.state.lock().unwrap();
-        for user in &state.rooms[room] {
-            let user = &state.users[user];
-            user.tx.send(response.clone()).unwrap()
-        }
+        state.broadcast_room(room, response)
     }
 
     pub fn kick_keep_alive(&self) {
