@@ -32,16 +32,16 @@ impl IoHandler {
         match response {
             Response::ListMembers { room, users } => {
                 let mut app = self.app.lock().await;
-                app.add_active_room(room.clone());
-                app.room_users_mut(&room).unwrap().items = users;
+                app.state.add_active_room(room.clone());
+                app.state.room_users_mut(&room).unwrap().items = users;
             }
             Response::ListUsers { users } => {
                 let mut app = self.app.lock().await;
-                app.all_users.items = users;
+                app.state.all_users.items = users;
             }
             Response::ListRooms { rooms } => {
                 let mut app = self.app.lock().await;
-                app.all_rooms.items = rooms;
+                app.state.all_rooms.items = rooms;
             }
             Response::TellRoom {
                 room,
@@ -49,7 +49,7 @@ impl IoHandler {
                 message,
             } => {
                 let mut app = self.app.lock().await;
-                app.room_messages_mut(&room)
+                app.state.room_messages_mut(&room)
                     .unwrap()
                     .items
                     .push((sender, message));
@@ -61,20 +61,20 @@ impl IoHandler {
             } => {
                 let mut app = self.app.lock().await;
                 if self.client.username() == sender {
-                    if app.chat_messages_mut(&username).is_none() {
-                        app.add_chat(username.clone());
+                    if app.state.chat_messages_mut(&username).is_none() {
+                        app.state.add_chat(username.clone());
                     }
 
-                    app.chat_messages_mut(&username)
+                    app.state.chat_messages_mut(&username)
                         .unwrap()
                         .items
                         .push((sender, message));
                 } else {
-                    if app.chat_messages_mut(&sender).is_none() {
-                        app.add_chat(sender.clone());
+                    if app.state.chat_messages_mut(&sender).is_none() {
+                        app.state.add_chat(sender.clone());
                     }
 
-                    app.chat_messages_mut(&sender)
+                    app.state.chat_messages_mut(&sender)
                         .unwrap()
                         .items
                         .push((sender, message));
@@ -82,7 +82,7 @@ impl IoHandler {
             }
             Response::KeepAlive => {
                 let mut app = self.app.lock().await;
-                app.set_keep_alive(true);
+                app.state.set_keep_alive(true);
             }
             Response::Err(_) => todo!(),
         }

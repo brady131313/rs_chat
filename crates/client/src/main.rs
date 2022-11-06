@@ -80,10 +80,10 @@ async fn start_io(mut client: Client, app: Arc<Mutex<App>>, mut io_rx: Unbounded
             tokio::time::sleep(Duration::from_secs(KEEP_ALIVE_CHECK)).await;
 
             let mut app = app.lock().await;
-            if !app.keep_alive() {
+            if !app.state.keep_alive() {
                 panic!("Server shutdown")
             } else {
-                app.set_keep_alive(false);
+                app.state.set_keep_alive(false);
             }
         }
     });
