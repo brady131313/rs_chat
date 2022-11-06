@@ -125,7 +125,7 @@ async fn start_ui(app: Arc<Mutex<App>>, username: String) -> Result<(), Box<dyn 
         terminal.draw(|rect| ui::draw(rect, &mut app, &username))?;
 
         let result = match events.next().await {
-            InputEvent::Input(key) => app.do_action(key),
+            InputEvent::Input(key) => app.do_action(key, &username),
             InputEvent::Tick => app.update_on_tick(),
         };
 

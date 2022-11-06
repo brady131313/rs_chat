@@ -68,6 +68,8 @@ impl State {
     pub fn keep_alive(&self) -> bool {
         self.keep_alive
     }
+    
+    // TODO make sure user is removed from private chat if leaving the server
 
     pub fn unselect_lists(&mut self) {
         self.current_room_users_mut()

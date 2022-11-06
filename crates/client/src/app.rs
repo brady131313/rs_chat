@@ -125,7 +125,7 @@ impl App {
         self.actions = Actions::from(actions);
     }
 
-    pub fn do_action(&mut self, key: Key) -> AppReturn {
+    pub fn do_action(&mut self, key: Key, username: &str) -> AppReturn {
         if let Some(action) = self.actions.find(key) {
             match action {
                 Action::Quit => AppReturn::Exit,
@@ -156,7 +156,7 @@ impl App {
                         self.focus_pane(Pane::NewMessage);
                     }
                     AppReturn::Continue
-                },
+                }
                 Action::Chats => {
                     self.state.active_rooms.unselect();
                     self.focus_pane(Pane::Chats);
@@ -213,9 +213,20 @@ impl App {
                     AppReturn::Continue
                 }
                 Action::NewChat => {
-                    if let Some(user) = self.state.all_users.selected_item().cloned() {
-                        self.state.add_chat(user);
-                        self.focus_pane(Pane::Chats)
+                    let user = match self.state.current_pane() {
+                        Pane::Users => self
+                            .state
+                            .current_room_users_mut()
+                            .and_then(|r| r.selected_item().cloned()),
+                        Pane::AllUsers => self.state.all_users.selected_item().cloned(),
+                        _ => unreachable!(),
+                    };
+
+                    if let Some(user) = user {
+                        if user != username {
+                            self.state.add_chat(user);
+                            self.focus_pane(Pane::Chats)
+                        }
                     }
                     AppReturn::Continue
                 }
