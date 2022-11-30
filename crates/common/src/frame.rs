@@ -12,11 +12,16 @@ pub struct Frame {
 pub enum FrameError {
     #[error("stream ended early")]
     Incomplete,
+    #[error("input too big")]
+    TooBig,
 }
 
 impl Frame {
     pub fn parse(src: &mut Cursor<&[u8]>) -> Result<Self, FrameError> {
         let len = read_u32(src)?;
+        if len > 16 * 1024 {
+            return Err(FrameError::TooBig);
+        }
 
         let mut out = vec![0; len as usize];
         src.read_exact(&mut out)

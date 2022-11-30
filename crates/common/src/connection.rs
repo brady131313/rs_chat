@@ -60,6 +60,7 @@ impl Connection {
                 Ok(Some(frame))
             }
             Err(FrameError::Incomplete) => Ok(None),
+            Err(err) => Err(err.into()),
         }
     }
 

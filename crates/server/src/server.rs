@@ -86,6 +86,7 @@ impl Server {
 impl Handler {
     #[instrument(level = "info", name = "Handler::run", skip(self, peer), fields(peer_addr = %peer.addr()))]
     async fn run(&mut self, peer: Peer) -> Result<()> {
+        tracing::trace!("started handling");
         loop {
             tokio::select! {
                 _ = self.keep_alive_kill_rx.recv() => {
