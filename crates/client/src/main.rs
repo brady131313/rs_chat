@@ -26,7 +26,7 @@ use tui::{backend::CrosstermBackend, Terminal};
 
 #[derive(Debug, Parser)]
 #[command(author, version, long_about = None)]
-/// Run an irc client
+/// Run an rs_chat client
 struct Args {
     /// username to connect to server with
     #[arg(short, default_value = "guest")]
@@ -81,7 +81,9 @@ async fn start_io(mut client: Client, app: Arc<Mutex<App>>, mut io_rx: Unbounded
 
             let mut app = app.lock().await;
             if !app.state.keep_alive() {
-                panic!("Server shutdown")
+                reset_terminal().unwrap();
+                eprintln!("Server shutdown, quitting...");
+                std::process::exit(1);
             } else {
                 app.state.set_keep_alive(false);
             }

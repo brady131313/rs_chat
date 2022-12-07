@@ -6,7 +6,7 @@ use tracing::Level;
 
 #[derive(Debug, Parser)]
 #[command(author, version, long_about = None)]
-/// Run an irc server
+/// Run an rs_chat server
 struct Args {
     #[arg(short, default_value = "127.0.0.1:4000")]
     /// The address to accept connections on
