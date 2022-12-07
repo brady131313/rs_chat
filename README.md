@@ -25,3 +25,9 @@ Options:
   -h, --help         Print help information
   -V, --version      Print version information
 ```
+
+# Hosted Server
+
+```
+./client -u [USER] --host rs-chat.fly.dev -p 80
+```
